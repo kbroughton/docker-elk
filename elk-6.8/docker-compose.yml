@@ -1,0 +1,89 @@
+version: '2.2'
+services:
+  kibana:
+    image: docker.elastic.co/kibana/kibana:6.8.1
+    environment:
+      server.name: kibana
+      server.host: "0"
+      elasticsearch.hosts: "http://elasticsearch:9200"
+    ports:
+     - 5601:5601
+    networks:
+      - esnet
+# volumes:
+#     - ./kibana.yml:/usr/share/kibana/config/kibana.yml
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.8.1
+    container_name: elasticsearch
+    environment:
+      - cluster.name=docker-cluster
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata1:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+      - 9300:9300
+    networks:
+      - esnet
+  elasticsearch2:
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.8.1
+    container_name: elasticsearch2
+    environment:
+      - cluster.name=docker-cluster
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "discovery.zen.ping.unicast.hosts=elasticsearch"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata2:/usr/share/elasticsearch/data
+    networks:
+      - esnet
+
+  filebeat:
+    container_name: filebeat
+    hostname: filebeat
+    user: root
+    image: "docker.elastic.co/beats/filebeat:6.8.1"
+    volumes:
+      #Mount the filebeat configuration so users can make edit
+      - ./config/beats/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml
+      #Mount the prospectors directory. Users can in turn add propspectors to this directory and they will be dynamically loaded
+      - ./config/beats/filebeat/prospectors.d/:/usr/share/filebeat/prospectors.d/
+      #Mount the nginx logs into the filebeat container so we can access and index them using the filebeat nginx module
+      #- ./logs/nginx/:/var/log/nginx/
+      #Mount the apache2 logs into the filebeat container so we can access and index them using the filebeat apache2 module
+      #- ./logs/apache2/:/var/log/apache2/
+      #Mount the mysql logs into the filebeat container so we can access and and index them using the filebeat apache module
+      #- ./logs/mysql/:/var/log/mysql/
+      #Mount the hosts system log directory. This represents the logs of the VM hosting docker. Consumed by the filebeat system module.
+      - /private/var/log/:/var/log/host/:ro
+      #Mount the docker logs for indexing by the custom prospector ./config/filebeat/prospectors.d
+      #- /var/lib/docker/containers:/hostfs/var/lib/docker/containers
+      #Named volume fsdata. This is used to persist the registry file between restarts, so to avoid data duplication
+      - ./fbdata:/usr/share/filebeat/data/
+      - ./dump:/dump
+    # networks: ['stack']
+    command: tail -f /dev/null
+     # filebeat -e -E output.elasticsearch.username=elastic -E output.elasticsearch.password=${ES_PASSWORD} -strict.perms=false
+    restart: on-failure
+    networks:
+      - esnet
+
+volumes:
+  esdata1:
+    driver: local
+  esdata2:
+    driver: local
+
+networks:
+  esnet:
+

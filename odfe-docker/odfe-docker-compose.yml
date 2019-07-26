@@ -1,0 +1,110 @@
+version: '3'
+services:
+  filebeat:
+    container_name: filebeat
+    hostname: filebeat
+    user: root
+    image: "docker.elastic.co/beats/filebeat:7.2.0"
+    volumes:
+      #Mount the filebeat configuration so users can make edit
+      - ./config/beats/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml
+      #Mount the prospectors directory. Users can in turn add propspectors to this directory and they will be dynamically loaded
+      - ./config/beats/filebeat/prospectors.d/:/usr/share/filebeat/prospectors.d/
+      #Mount the nginx logs into the filebeat container so we can access and index them using the filebeat nginx module
+      #- ./logs/nginx/:/var/log/nginx/
+      #Mount the apache2 logs into the filebeat container so we can access and index them using the filebeat apache2 module
+      #- ./logs/apache2/:/var/log/apache2/
+      #Mount the mysql logs into the filebeat container so we can access and and index them using the filebeat apache module
+      #- ./logs/mysql/:/var/log/mysql/
+      #Mount the hosts system log directory. This represents the logs of the VM hosting docker. Consumed by the filebeat system module.
+      - /private/var/log/:/var/log/host/:ro
+      #Mount the docker logs for indexing by the custom prospector ./config/filebeat/prospectors.d
+      #- /var/lib/docker/containers:/hostfs/var/lib/docker/containers
+      #Named volume fsdata. This is used to persist the registry file between restarts, so to avoid data duplication
+      - ./fbdata:/usr/share/filebeat/data/
+      - ./dump:/dump
+    # networks: ['stack']
+    command: tail -f /dev/null
+     # filebeat -e -E output.elasticsearch.username=elastic -E output.elasticsearch.password=${ES_PASSWORD} -strict.perms=false
+    restart: on-failure
+    #depends_on:
+      #wait for the these services to come up. This ensures the logs are available and ES exists for indexing
+      #elasticsearch:  { condition: service_healthy }
+      #nginx: { condition: service_started }
+      #apache2: { condition: service_started }
+    networks:
+      - odfe2-net
+
+  elasticdump:
+    image: taskrabbit/elasticsearch-dump
+    entrypoint: "/bin/sh -c 'ping 8.8.8.8'"
+    volumes:
+     - dump:/dump
+    networks:
+      - odfe2-net
+
+  odfe-node1:
+    image: amazon/opendistro-for-elasticsearch:0.7.0
+    container_name: odfe-node1
+    environment:
+      - cluster.name=odfe-cluster
+      - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - odfe2-data1:/usr/share/elasticsearch/data
+      - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+    ports:
+      - 9200:9200
+      - 9600:9600 # required for Performance Analyzer
+      - 9300:9300 # required for burp Logger++
+    networks:
+      - odfe2-net
+  odfe-node2:
+    image: amazon/opendistro-for-elasticsearch:0.7.0
+    container_name: odfe-node2
+    environment:
+      - cluster.name=odfe-cluster
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - discovery.zen.ping.unicast.hosts=odfe-node1
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - odfe2-data2:/usr/share/elasticsearch/data
+      - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+    networks:
+      - odfe2-net
+  kibana:
+    image: amazon/opendistro-for-elasticsearch-kibana:0.7.0
+    container_name: odfe-kibana
+    ports:
+      - 5601:5601
+    expose:
+      - "5601"
+    environment:
+      ELASTICSEARCH_URL: https://odfe-node1:9200
+      ELASTICSEARCH_HOSTS: https://odfe-node1:9200
+    networks:
+      - odfe2-net
+
+  elasticdump:
+    image: taskrabbit/elasticsearch-dump
+    networks:
+      - odfe2-net
+    entrypoint: ["/bin/sh", "-c", "ping 8.8.8.8"]
+    #command: ["elasticdump", "--input=http://odfe-node1:9200/logger", "--output=http://staging.es.com:9200/logger","--type=data"]
+#    environment:
+
+
+volumes:
+  odfe2-data1:
+  odfe2-data2:
+
+networks:
+  odfe2-net:
