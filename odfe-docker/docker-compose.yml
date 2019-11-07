@@ -1,5 +1,68 @@
 version: '3'
 services:
+  odfe-node1:
+    image: amazon/opendistro-for-elasticsearch:1.2.0
+    container_name: odfe-node1
+    environment:
+      - cluster.name=docker-cluster
+      - node.name=odfe-node1
+      - discovery.seed_hosts=odfe-node1,odfe-node2
+      - cluster.initial_master_nodes=odfe-node1
+      - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
+      - "ES_JAVA_OPTS=-Xms1024m -Xmx1024m" # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
+      - opendistro_security.authcz.admin_dn=CN=admin,OU=client,O=client,L=test,C=de    
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536 # maximum number of open files for the Elasticsearch user, set to at least 65536 on modern systems
+        hard: 65536
+    volumes:
+      - odfe-data1:/usr/share/elasticsearch/data
+      - ./odfe1:/odfe1
+    ports:
+      - 9200:9200
+      - 9600:9600 # required for Performance Analyzer
+      - 9300:9300 # required for BurpLogger++
+    networks:
+      - odfe-net
+  odfe-node2:
+    image: amazon/opendistro-for-elasticsearch:1.2.0
+    container_name: odfe-node2
+    environment:
+      - cluster.name=docker-cluster
+      - node.name=odfe-node2
+      - discovery.seed_hosts=odfe-node1,odfe-node2
+      - cluster.initial_master_nodes=odfe-node1
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1024m -Xmx1024m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - odfe-data2:/usr/share/elasticsearch/data
+#      - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - ./odfe2:/odfe2
+    networks:
+      - odfe-net
+  kibana:
+    image: amazon/opendistro-for-elasticsearch-kibana:1.2.0
+    container_name: odfe-kibana
+    ports:
+      - 5601:5601
+    expose:
+      - "5601"
+    environment:
+      ELASTICSEARCH_URL: https://odfe-node1:9200
+      ELASTICSEARCH_HOSTS: https://odfe-node1:9200
+    networks:
+      - odfe-net
+  
   filebeat:
     container_name: filebeat
     hostname: filebeat
@@ -33,79 +96,30 @@ services:
       #nginx: { condition: service_started }
       #apache2: { condition: service_started }
     networks:
-      - odfe2-net
+      - odfe-net
 
 # dump to disk. upload to cloud elastic or S3
-  elasticdump:
-    image: taskrabbit/elasticsearch-dump
-    entrypoint: "/bin/sh -c 'ping 8.8.8.8'"
-    volumes:
-     - dump:/dump
-    networks:
-      - odfe2-net
+  # elasticdump:
+  #   image: taskrabbit/elasticsearch-dump
+  #   entrypoint: "/bin/sh -c 'ping 8.8.8.8'"
+  #   volumes:
+  #    - dump:/dump
+  #   networks:
+  #     - odfe-net
 
-  odfe-node1:
-    image: amazon/opendistro-for-elasticsearch:0.7.0
-    container_name: odfe-node1
-    environment:
-      - cluster.name=docker-cluster
-      - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    volumes:
-      - odfe2-data1:/usr/share/elasticsearch/data
-      - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
-    ports:
-      - 9200:9200
-      - 9600:9600 # required for Performance Analyzer
-      - 9300:9300 # required for burp Logger++
-    networks:
-      - odfe2-net
-  odfe-node2:
-    image: amazon/opendistro-for-elasticsearch:0.7.0
-    container_name: odfe-node2
-    environment:
-      - cluster.name=docker-cluster
-      - bootstrap.memory_lock=true
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      - discovery.zen.ping.unicast.hosts=odfe-node1
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    volumes:
-      - odfe2-data2:/usr/share/elasticsearch/data
-      - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
-    networks:
-      - odfe2-net
-  kibana:
-    image: amazon/opendistro-for-elasticsearch-kibana:0.7.0
-    container_name: odfe-kibana
-    ports:
-      - 5601:5601
-    expose:
-      - "5601"
-    environment:
-      ELASTICSEARCH_URL: https://odfe-node1:9200
-      ELASTICSEARCH_HOSTS: https://odfe-node1:9200
-    networks:
-      - odfe2-net
+
 
   elasticdump:
     image: taskrabbit/elasticsearch-dump
     networks:
-      - odfe2-net
+      - odfe-net
     entrypoint: ["/bin/sh", "-c", "ping 8.8.8.8"]
     #command: ["elasticdump", "--input=http://odfe-node1:9200/logger", "--output=http://staging.es.com:9200/logger","--type=data"]
 #    environment:
 
-
 volumes:
-  odfe2-data1:
-  odfe2-data2:
+  odfe-data1:
+  odfe-data2:
 
 networks:
-  odfe2-net:
+  odfe-net:
